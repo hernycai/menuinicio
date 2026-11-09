@@ -29,6 +29,10 @@ struct StartupItem: Identifiable {
     let label: String
     let kind: String
     let description: String
+    let application: String
+    let executablePath: String
+    let developer: String
+    let effect: String
     let manageable: Bool
     let isDisabled: Bool
 }
@@ -40,11 +44,15 @@ final class StartupModel: ObservableObject {
     @Published var selection = "Todo"
     @Published var notice = ""
     @Published var isLoading = false
+    @Published var lastChangeAvailable = false
+    private var lastChange: (item: StartupItem, wasDisabled: Bool)?
+    @Published var filter = "Todo"
 
     var visibleItems: [StartupItem] {
         items.filter { item in
             (selection == "Todo" || item.kind == selection) &&
-            (search.isEmpty || item.name.localizedCaseInsensitiveContains(search) || item.label.localizedCaseInsensitiveContains(search) || item.path.path.localizedCaseInsensitiveContains(search))
+            (filter == "Todo" || (filter == "Modificables" ? item.manageable : !item.manageable)) &&
+            (search.isEmpty || item.name.localizedCaseInsensitiveContains(search) || item.label.localizedCaseInsensitiveContains(search) || item.path.path.localizedCaseInsensitiveContains(search) || item.application.localizedCaseInsensitiveContains(search) || item.developer.localizedCaseInsensitiveContains(search))
         }
     }
     var activeCount: Int { items.filter { !$0.isDisabled }.count }
@@ -94,13 +102,51 @@ final class StartupModel: ObservableObject {
                 let display = label.split(separator: ".").last.map(String.init) ?? label
                 let program = (plist?["Program"] as? String) ?? ((plist?["ProgramArguments"] as? [String])?.first)
                 let description = (plist?["Comment"] as? String) ?? (plist?["Description"] as? String) ?? program.map { "Inicia el proceso \($0) automáticamente." } ?? "Servicio en segundo plano registrado por \(label)."
-                result.append(StartupItem(id: original.path, name: display, path: original, domain: domain, label: label, kind: kind, description: description, manageable: manageable, isDisabled: fileDisabled || (disabledLabels[domain]?.contains(label) ?? false)))
+                let executable = program ?? actual.path
+                let appBundle = Self.appBundlePath(for: executable)
+                let bundle = appBundle.flatMap { Bundle(path: $0) }
+                let application = (bundle?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String) ?? (bundle?.object(forInfoDictionaryKey: "CFBundleName") as? String) ?? URL(fileURLWithPath: executable).deletingPathExtension().lastPathComponent
+                let signedPath = appBundle ?? executable
+                let developer = Self.signingAuthority(at: signedPath)
+                let effect = kind == "Daemon del sistema" ? "Al apagarlo, el servicio deja de ejecutarse para todo el sistema. Puede afectar a otros usuarios o funciones de la app." : "Al apagarlo, \(application) deja de iniciarse en segundo plano. La sincronización, avisos o actualizaciones de esa app pueden dejar de funcionar."
+                result.append(StartupItem(id: original.path, name: display, path: original, domain: domain, label: label, kind: kind, description: description, application: application, executablePath: executable, developer: developer, effect: effect, manageable: manageable, isDisabled: fileDisabled || (disabledLabels[domain]?.contains(label) ?? false)))
             }
         }
         return result.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
+    nonisolated private static func appBundlePath(for executable: String) -> String? {
+        var url = URL(fileURLWithPath: executable).standardizedFileURL
+        while url.path != "/" {
+            if url.pathExtension == "app" { return url.path }
+            url.deleteLastPathComponent()
+        }
+        return nil
+    }
+
+    nonisolated private static func signingAuthority(at path: String) -> String {
+        let task = Process(); task.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        task.arguments = ["-dv", "--verbose=2", "--", path]
+        let pipe = Pipe(); task.standardError = pipe; task.standardOutput = Pipe()
+        guard (try? task.run()) != nil else { return "No identificada" }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile(); task.waitUntilExit()
+        let output = String(decoding: data, as: UTF8.self)
+        if let line = output.components(separatedBy: .newlines).first(where: { $0.hasPrefix("Authority=") }) { return String(line.dropFirst("Authority=".count)) }
+        return "Sin firma identificada"
+    }
+
     func toggle(_ item: StartupItem, enable: Bool) {
+        performToggle(item, enable: enable, registerUndo: true)
+    }
+
+    func undoLastChange() {
+        guard let change = lastChange else { return }
+        performToggle(change.item, enable: change.wasDisabled, registerUndo: false)
+        lastChange = nil
+        lastChangeAvailable = false
+    }
+
+    private func performToggle(_ item: StartupItem, enable: Bool, registerUndo: Bool) {
         guard item.manageable else {
             notice = "Este elemento está en una ubicación protegida. Para modificarlo se necesita autorización de administrador."
             return
@@ -124,6 +170,10 @@ final class StartupModel: ObservableObject {
                 notice = item.domain == "system" ? "macOS canceló o rechazó el cambio de \(item.label)." : "macOS no pudo cambiar el estado de \(item.label)."
                 return
             }
+            if registerUndo {
+                lastChange = (item, item.isDisabled)
+                lastChangeAvailable = true
+            }
             notice = enable ? "\(item.name) se habilitará al iniciar sesión." : "\(item.name) se deshabilitará al iniciar sesión."
             refresh()
         } catch { notice = "No se pudo ejecutar launchctl: \(error.localizedDescription)" }
@@ -142,7 +192,7 @@ struct MainView: View {
             VStack(spacing: 0) {
                 header
                 if !model.notice.isEmpty {
-                    HStack { Image(systemName: "info.circle.fill"); Text(model.notice); Spacer(); Button { model.notice = "" } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }
+                    HStack { Image(systemName: "info.circle.fill"); Text(model.notice); Spacer(); if model.lastChangeAvailable { Button("Deshacer") { model.undoLastChange() }.buttonStyle(.bordered) }; Button { model.notice = "" } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }
                         .font(.system(size: 12)).foregroundStyle(.white.opacity(0.82)).padding(12).background(red.opacity(0.13))
                 }
                 list
@@ -177,6 +227,7 @@ struct MainView: View {
                 metric("Deshabilitados", value: model.disabledCount, tint: .white.opacity(0.65))
             }.padding(12).background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 9))
             HStack { Image(systemName: "circle.lefthalf.filled").foregroundStyle(red); Picker("Apariencia", selection: $appearance) { Text("Oscuro").tag("dark"); Text("Claro").tag("light") }.pickerStyle(.segmented).labelsHidden() }
+            Button { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension")!) } label: { Label("Ítems de inicio de macOS", systemImage: "arrow.up.forward.app").font(.system(size: 12)) }.buttonStyle(.plain)
         }.padding(18).frame(width: 245).background(isLight ? Color(red: 0.91, green: 0.91, blue: 0.93) : Color(red: 0.09, green: 0.09, blue: 0.09))
     }
     private func metric(_ title: String, value: Int, tint: Color) -> some View { HStack { Circle().fill(tint).frame(width: 6, height: 6); Text(title).font(.system(size: 13)).foregroundStyle(.secondary); Spacer(); Text("\(value)").font(.system(size: 14, weight: .semibold)).monospacedDigit() } }
@@ -192,7 +243,13 @@ struct MainView: View {
     }
     private var list: some View {
         VStack(spacing: 0) {
-            HStack { Text("ELEMENTO"); Spacer(); Text("TIPO").frame(width: 155, alignment: .leading); Text("ESTADO").frame(width: 90, alignment: .leading) }
+            HStack {
+                Text("ELEMENTO")
+                Spacer()
+                Picker("Gestión", selection: $model.filter) { Text("Todos").tag("Todo"); Text("Modificables").tag("Modificables"); Text("Protegidos").tag("Protegidos") }.pickerStyle(.segmented).frame(width: 285)
+                Text("TIPO").frame(width: 155, alignment: .leading)
+                Text("ESTADO").frame(width: 145, alignment: .leading)
+            }
                 .font(.system(size: 11, weight: .bold)).tracking(1).foregroundStyle(.secondary).padding(.horizontal, 24).padding(.vertical, 12)
             Rectangle().fill(.white.opacity(0.08)).frame(height: 1)
             if model.isLoading { Spacer(); ProgressView("Analizando el sistema…"); Spacer() }
@@ -212,7 +269,13 @@ struct ItemRow: View {
     var body: some View {
         HStack(spacing: 12) {
             RoundedRectangle(cornerRadius: 8).fill(red.opacity(0.13)).frame(width: 34, height: 34).overlay(Image(systemName: item.kind == "Daemon del sistema" ? "gearshape.2.fill" : "bolt.fill").font(.system(size: 13)).foregroundStyle(red))
-            VStack(alignment: .leading, spacing: 4) { Text(item.name).font(.system(size: 16, weight: .semibold)).lineLimit(1); Text(item.description).font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(2); Text(item.label).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1) }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.application).font(.system(size: 16, weight: .semibold)).lineLimit(1)
+                Text(item.description).font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(2)
+                Text("Desarrollador: \(item.developer)").font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                Text(item.executablePath).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1).help(item.executablePath)
+                Text(item.label).font(.system(size: 10, design: .monospaced)).foregroundStyle(.tertiary).lineLimit(1)
+            }
             Spacer(minLength: 10)
             Text(item.kind).font(.system(size: 12)).foregroundStyle(.secondary).frame(width: 155, alignment: .leading)
             HStack(spacing: 9) {
@@ -224,12 +287,14 @@ struct ItemRow: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!item.manageable)
-                .help(item.manageable ? "Cambiar estado de inicio" : "Elemento protegido por macOS")
+                .help(item.effect)
                 Text(item.isDisabled ? "Apagado" : "Encendido")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(item.isDisabled ? Color.secondary : Color.primary)
                     .fixedSize()
             }.frame(width: 145, alignment: .leading)
+            Button { NSWorkspace.shared.selectFile(item.executablePath, inFileViewerRootedAtPath: URL(fileURLWithPath: item.executablePath).deletingLastPathComponent().path) } label: { Image(systemName: "folder").font(.system(size: 14)) }
+                .buttonStyle(.plain).help("Mostrar en Finder")
         }.padding(.horizontal, 24).padding(.vertical, 12).overlay(alignment: .bottom) { Rectangle().fill(.primary.opacity(0.06)).frame(height: 1).padding(.leading, 70) }
     }
 }
