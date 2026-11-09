@@ -12,6 +12,13 @@ struct MenuInicioApp: App {
         .windowStyle(.hiddenTitleBar)
         Settings { SettingsView() }
     }
+    var commands: some Commands {
+        CommandGroup(replacing: .appSettings) {
+            Button("Ajustes") {
+                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            }
+        }
+    }
 }
 
 struct StartupItem: Identifiable {
@@ -140,9 +147,9 @@ struct MainView: View {
                 }
                 list
                 footer
-            }.background(isLight ? Color.white : Color(red: 0.075, green: 0.075, blue: 0.085))
+            }.background(isLight ? Color.white : Color(red: 0.09, green: 0.09, blue: 0.09))
         }
-        .background(isLight ? Color(red: 0.95, green: 0.95, blue: 0.96) : Color(red: 0.055, green: 0.055, blue: 0.065))
+        .background(isLight ? Color(red: 0.95, green: 0.95, blue: 0.96) : Color(red: 0.09, green: 0.09, blue: 0.09))
         .foregroundStyle(isLight ? Color.black.opacity(0.86) : Color.white)
         .preferredColorScheme(isLight ? .light : .dark)
         .onAppear { model.refresh() }
@@ -170,7 +177,7 @@ struct MainView: View {
                 metric("Deshabilitados", value: model.disabledCount, tint: .white.opacity(0.65))
             }.padding(12).background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 9))
             HStack { Image(systemName: "circle.lefthalf.filled").foregroundStyle(red); Picker("Apariencia", selection: $appearance) { Text("Oscuro").tag("dark"); Text("Claro").tag("light") }.pickerStyle(.segmented).labelsHidden() }
-        }.padding(18).frame(width: 245).background(isLight ? Color(red: 0.91, green: 0.91, blue: 0.93) : Color(red: 0.06, green: 0.06, blue: 0.07))
+        }.padding(18).frame(width: 245).background(isLight ? Color(red: 0.91, green: 0.91, blue: 0.93) : Color(red: 0.09, green: 0.09, blue: 0.09))
     }
     private func metric(_ title: String, value: Int, tint: Color) -> some View { HStack { Circle().fill(tint).frame(width: 6, height: 6); Text(title).font(.system(size: 13)).foregroundStyle(.secondary); Spacer(); Text("\(value)").font(.system(size: 14, weight: .semibold)).monospacedDigit() } }
 
@@ -208,17 +215,21 @@ struct ItemRow: View {
             VStack(alignment: .leading, spacing: 4) { Text(item.name).font(.system(size: 16, weight: .semibold)).lineLimit(1); Text(item.description).font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(2); Text(item.label).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1) }
             Spacer(minLength: 10)
             Text(item.kind).font(.system(size: 12)).foregroundStyle(.secondary).frame(width: 155, alignment: .leading)
-            Button { onToggle(item.isDisabled) } label: {
-                Label(item.isDisabled ? "Apagado" : "Encendido", systemImage: "power")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(item.isDisabled ? Color.secondary : Color.white)
-                    .padding(.horizontal, 11).padding(.vertical, 7)
-                    .background(item.isDisabled ? Color.secondary.opacity(0.17) : red, in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(!item.manageable)
-            .help(item.manageable ? "Cambiar estado de inicio" : "Elemento protegido por macOS")
-            .frame(width: 105, alignment: .leading)
+            HStack(spacing: 9) {
+                Button { onToggle(item.isDisabled) } label: {
+                    ZStack(alignment: item.isDisabled ? .leading : .trailing) {
+                        Capsule().fill(item.isDisabled ? Color.secondary.opacity(0.34) : red).frame(width: 52, height: 29)
+                        Circle().fill(.white).frame(width: 23, height: 23).padding(3)
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(!item.manageable)
+                .help(item.manageable ? "Cambiar estado de inicio" : "Elemento protegido por macOS")
+                Text(item.isDisabled ? "Apagado" : "Encendido")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(item.isDisabled ? Color.secondary : Color.primary)
+                    .fixedSize()
+            }.frame(width: 145, alignment: .leading)
         }.padding(.horizontal, 24).padding(.vertical, 12).overlay(alignment: .bottom) { Rectangle().fill(.primary.opacity(0.06)).frame(height: 1).padding(.leading, 70) }
     }
 }
