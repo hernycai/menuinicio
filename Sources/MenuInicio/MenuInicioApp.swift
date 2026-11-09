@@ -8,7 +8,6 @@ struct MenuInicioApp: App {
         WindowGroup {
             MainView()
                 .frame(minWidth: 900, minHeight: 620)
-                .preferredColorScheme(.dark)
         }
         .windowStyle(.hiddenTitleBar)
         Settings { SettingsView() }
@@ -57,7 +56,7 @@ final class StartupModel: ObservableObject {
         let uid = getuid()
         let sources: [(URL, String, String, Bool)] = [
             (fm.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents"), "Agente usuario", "gui/\(uid)", true),
-            (URL(fileURLWithPath: "/Library/LaunchAgents"), "Agente del sistema", "gui/\(uid)", false),
+            (URL(fileURLWithPath: "/Library/LaunchAgents"), "Agente del sistema", "gui/\(uid)", true),
             (URL(fileURLWithPath: "/Library/LaunchDaemons"), "Daemon del sistema", "system", false)
         ]
         var disabledLabels: [String: Set<String>] = [:]
@@ -99,14 +98,23 @@ final class StartupModel: ObservableObject {
             notice = "Este elemento está en una ubicación protegida. Para modificarlo se necesita autorización de administrador."
             return
         }
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-        task.arguments = [enable ? "enable" : "disable", "\(item.domain)/\(item.label)"]
-        let errorPipe = Pipe(); task.standardError = errorPipe
+        let target = "\(item.domain)/\(item.label)"
+        let verb = enable ? "enable" : "disable"
         do {
+            let task = Process()
+            if item.domain == "system" {
+                task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+                let command = "/bin/launchctl \(verb) '\(target.replacingOccurrences(of: "'", with: "'\\''"))'"
+                let escaped = command.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+                task.arguments = ["-e", "do shell script \"\(escaped)\" with administrator privileges"]
+            } else {
+                task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+                task.arguments = [verb, target]
+            }
+            let pipe = Pipe(); task.standardError = pipe; task.standardOutput = pipe
             try task.run(); task.waitUntilExit()
             guard task.terminationStatus == 0 else {
-                notice = "macOS no pudo cambiar el estado de \(item.label). Revisa los permisos del agente."
+                notice = item.domain == "system" ? "macOS canceló o rechazó el cambio de \(item.label)." : "macOS no pudo cambiar el estado de \(item.label)."
                 return
             }
             notice = enable ? "\(item.name) se habilitará al iniciar sesión." : "\(item.name) se deshabilitará al iniciar sesión."
@@ -197,10 +205,20 @@ struct ItemRow: View {
     var body: some View {
         HStack(spacing: 12) {
             RoundedRectangle(cornerRadius: 8).fill(red.opacity(0.13)).frame(width: 34, height: 34).overlay(Image(systemName: item.kind == "Daemon del sistema" ? "gearshape.2.fill" : "bolt.fill").font(.system(size: 13)).foregroundStyle(red))
-            VStack(alignment: .leading, spacing: 4) { Text(item.name).font(.system(size: 14, weight: .semibold)).lineLimit(1); Text(item.description).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(2); Text(item.label).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1) }
+            VStack(alignment: .leading, spacing: 4) { Text(item.name).font(.system(size: 16, weight: .semibold)).lineLimit(1); Text(item.description).font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(2); Text(item.label).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1) }
             Spacer(minLength: 10)
             Text(item.kind).font(.system(size: 12)).foregroundStyle(.secondary).frame(width: 155, alignment: .leading)
-            Toggle("", isOn: Binding(get: { !item.isDisabled }, set: onToggle)).labelsHidden().tint(red).disabled(!item.manageable).frame(width: 90, alignment: .leading).help(item.manageable ? "Habilitar o deshabilitar al iniciar sesión" : "Elemento protegido por macOS; no se puede cambiar desde aquí")
+            Button { onToggle(item.isDisabled) } label: {
+                Label(item.isDisabled ? "Apagado" : "Encendido", systemImage: "power")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(item.isDisabled ? Color.secondary : Color.white)
+                    .padding(.horizontal, 11).padding(.vertical, 7)
+                    .background(item.isDisabled ? Color.secondary.opacity(0.17) : red, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(!item.manageable)
+            .help(item.manageable ? "Cambiar estado de inicio" : "Elemento protegido por macOS")
+            .frame(width: 105, alignment: .leading)
         }.padding(.horizontal, 24).padding(.vertical, 12).overlay(alignment: .bottom) { Rectangle().fill(.primary.opacity(0.06)).frame(height: 1).padding(.leading, 70) }
     }
 }
