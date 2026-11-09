@@ -22,6 +22,7 @@ struct StartupItem: Identifiable {
     let domain: String
     let label: String
     let kind: String
+    let description: String
     let manageable: Bool
     let isDisabled: Bool
 }
@@ -85,7 +86,9 @@ final class StartupModel: ObservableObject {
                 let plist = data.flatMap { try? PropertyListSerialization.propertyList(from: $0, format: nil) } as? [String: Any]
                 let label = plist?["Label"] as? String ?? actual.deletingPathExtension().lastPathComponent
                 let display = label.split(separator: ".").last.map(String.init) ?? label
-                result.append(StartupItem(id: original.path, name: display, path: original, domain: domain, label: label, kind: kind, manageable: manageable, isDisabled: fileDisabled || (disabledLabels[domain]?.contains(label) ?? false)))
+                let program = (plist?["Program"] as? String) ?? ((plist?["ProgramArguments"] as? [String])?.first)
+                let description = (plist?["Comment"] as? String) ?? (plist?["Description"] as? String) ?? program.map { "Inicia el proceso \($0) automáticamente." } ?? "Servicio en segundo plano registrado por \(label)."
+                result.append(StartupItem(id: original.path, name: display, path: original, domain: domain, label: label, kind: kind, description: description, manageable: manageable, isDisabled: fileDisabled || (disabledLabels[domain]?.contains(label) ?? false)))
             }
         }
         return result.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -114,8 +117,9 @@ final class StartupModel: ObservableObject {
 
 struct MainView: View {
     @StateObject private var model = StartupModel()
-    @State private var showSettings = false
+    @AppStorage("appearance") private var appearance = "dark"
     private let red = Color(red: 0.95, green: 0.19, blue: 0.22)
+    private var isLight: Bool { appearance == "light" }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -128,9 +132,11 @@ struct MainView: View {
                 }
                 list
                 footer
-            }.background(Color(red: 0.075, green: 0.075, blue: 0.085))
+            }.background(isLight ? Color.white : Color(red: 0.075, green: 0.075, blue: 0.085))
         }
-        .background(Color(red: 0.055, green: 0.055, blue: 0.065))
+        .background(isLight ? Color(red: 0.95, green: 0.95, blue: 0.96) : Color(red: 0.055, green: 0.055, blue: 0.065))
+        .foregroundStyle(isLight ? Color.black.opacity(0.86) : Color.white)
+        .preferredColorScheme(isLight ? .light : .dark)
         .onAppear { model.refresh() }
     }
 
@@ -155,25 +161,24 @@ struct MainView: View {
                 metric("Activos", value: model.activeCount, tint: red)
                 metric("Deshabilitados", value: model.disabledCount, tint: .white.opacity(0.65))
             }.padding(12).background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 9))
-            Button { showSettings = true } label: { Label("Actualizaciones", systemImage: "arrow.clockwise.circle").font(.system(size: 12)).foregroundStyle(.white.opacity(0.67)) }.buttonStyle(.plain)
-                .sheet(isPresented: $showSettings) { UpdateView().frame(width: 480, height: 360).preferredColorScheme(.dark) }
-        }.padding(18).frame(width: 235).background(Color(red: 0.06, green: 0.06, blue: 0.07))
+            HStack { Image(systemName: "circle.lefthalf.filled").foregroundStyle(red); Picker("Apariencia", selection: $appearance) { Text("Oscuro").tag("dark"); Text("Claro").tag("light") }.pickerStyle(.segmented).labelsHidden() }
+        }.padding(18).frame(width: 245).background(isLight ? Color(red: 0.91, green: 0.91, blue: 0.93) : Color(red: 0.06, green: 0.06, blue: 0.07))
     }
-    private func metric(_ title: String, value: Int, tint: Color) -> some View { HStack { Circle().fill(tint).frame(width: 6, height: 6); Text(title).font(.system(size: 11)).foregroundStyle(.white.opacity(0.66)); Spacer(); Text("\(value)").font(.system(size: 12, weight: .semibold)).monospacedDigit() } }
+    private func metric(_ title: String, value: Int, tint: Color) -> some View { HStack { Circle().fill(tint).frame(width: 6, height: 6); Text(title).font(.system(size: 13)).foregroundStyle(.secondary); Spacer(); Text("\(value)").font(.system(size: 14, weight: .semibold)).monospacedDigit() } }
 
     private var header: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 4) { Text("Elementos de inicio").font(.system(size: 21, weight: .bold)); Text("Servicios y procesos configurados para arrancar con macOS").font(.system(size: 11)).foregroundStyle(.secondary) }
+            VStack(alignment: .leading, spacing: 4) { Text("Elementos de inicio").font(.system(size: 23, weight: .bold)); Text("Servicios y procesos configurados para arrancar con macOS").font(.system(size: 13)).foregroundStyle(.secondary) }
             Spacer()
-            HStack(spacing: 7) { Image(systemName: "magnifyingglass").foregroundStyle(.secondary); TextField("Buscar elementos", text: $model.search).textFieldStyle(.plain).font(.system(size: 12)).frame(width: 150) }
+            HStack(spacing: 7) { Image(systemName: "magnifyingglass").foregroundStyle(.secondary); TextField("Buscar elementos", text: $model.search).textFieldStyle(.plain).font(.system(size: 14)).frame(width: 165) }
                 .padding(9).background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 7))
-            Button { model.refresh() } label: { Image(systemName: "arrow.clockwise").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white).padding(9).background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 7)) }.buttonStyle(.plain).help("Volver a analizar")
-        }.padding(.horizontal, 24).padding(.vertical, 19).background(Color(red: 0.085, green: 0.085, blue: 0.095))
+            Button { model.refresh() } label: { Image(systemName: "arrow.clockwise").font(.system(size: 15, weight: .semibold)).foregroundStyle(.primary).padding(9).background(.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 7)) }.buttonStyle(.plain).help("Volver a analizar")
+        }.padding(.horizontal, 24).padding(.vertical, 19).background(isLight ? Color(red: 0.96, green: 0.96, blue: 0.97) : Color(red: 0.085, green: 0.085, blue: 0.095))
     }
     private var list: some View {
         VStack(spacing: 0) {
             HStack { Text("ELEMENTO"); Spacer(); Text("TIPO").frame(width: 155, alignment: .leading); Text("ESTADO").frame(width: 90, alignment: .leading) }
-                .font(.system(size: 9, weight: .bold)).tracking(1).foregroundStyle(.secondary).padding(.horizontal, 24).padding(.vertical, 12)
+                .font(.system(size: 11, weight: .bold)).tracking(1).foregroundStyle(.secondary).padding(.horizontal, 24).padding(.vertical, 12)
             Rectangle().fill(.white.opacity(0.08)).frame(height: 1)
             if model.isLoading { Spacer(); ProgressView("Analizando el sistema…"); Spacer() }
             else if model.visibleItems.isEmpty { Spacer(); VStack(spacing: 8) { Image(systemName: "checkmark.shield").font(.system(size: 30)).foregroundStyle(red); Text("No se encontraron elementos").font(.system(size: 14, weight: .semibold)); Text("Prueba otra categoría o vuelve a analizar.").font(.system(size: 11)).foregroundStyle(.secondary) }; Spacer() }
@@ -181,7 +186,7 @@ struct MainView: View {
         }
     }
     private var footer: some View {
-        HStack(spacing: 8) { Image(systemName: "lock.shield").foregroundStyle(red); Text("Los cambios en ubicaciones protegidas requieren permisos de administrador.").foregroundStyle(.secondary); Spacer(); Text("macOS").foregroundStyle(.white.opacity(0.42)) }.font(.system(size: 10)).padding(.horizontal, 22).padding(.vertical, 13).background(Color(red: 0.085, green: 0.085, blue: 0.095))
+        HStack(spacing: 8) { Image(systemName: "lock.shield").foregroundStyle(red); Text("Los cambios en ubicaciones protegidas requieren permisos de administrador.").foregroundStyle(.secondary); Spacer(); Text("macOS").foregroundStyle(.secondary) }.font(.system(size: 12)).padding(.horizontal, 22).padding(.vertical, 13).background(isLight ? Color(red: 0.96, green: 0.96, blue: 0.97) : Color(red: 0.085, green: 0.085, blue: 0.095))
     }
 }
 
@@ -192,11 +197,11 @@ struct ItemRow: View {
     var body: some View {
         HStack(spacing: 12) {
             RoundedRectangle(cornerRadius: 8).fill(red.opacity(0.13)).frame(width: 34, height: 34).overlay(Image(systemName: item.kind == "Daemon del sistema" ? "gearshape.2.fill" : "bolt.fill").font(.system(size: 13)).foregroundStyle(red))
-            VStack(alignment: .leading, spacing: 4) { Text(item.name).font(.system(size: 12, weight: .semibold)).lineLimit(1); Text(item.label).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1) }
+            VStack(alignment: .leading, spacing: 4) { Text(item.name).font(.system(size: 14, weight: .semibold)).lineLimit(1); Text(item.description).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(2); Text(item.label).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1) }
             Spacer(minLength: 10)
-            Text(item.kind).font(.system(size: 10)).foregroundStyle(.white.opacity(0.62)).frame(width: 155, alignment: .leading)
-            Toggle("", isOn: Binding(get: { !item.isDisabled }, set: onToggle)).labelsHidden().tint(red).disabled(!item.manageable).frame(width: 90, alignment: .leading).help(item.manageable ? "Habilitar o deshabilitar al iniciar sesión" : "Ubicación protegida por macOS")
-        }.padding(.horizontal, 24).padding(.vertical, 10).overlay(alignment: .bottom) { Rectangle().fill(.white.opacity(0.045)).frame(height: 1).padding(.leading, 70) }
+            Text(item.kind).font(.system(size: 12)).foregroundStyle(.secondary).frame(width: 155, alignment: .leading)
+            Toggle("", isOn: Binding(get: { !item.isDisabled }, set: onToggle)).labelsHidden().tint(red).disabled(!item.manageable).frame(width: 90, alignment: .leading).help(item.manageable ? "Habilitar o deshabilitar al iniciar sesión" : "Elemento protegido por macOS; no se puede cambiar desde aquí")
+        }.padding(.horizontal, 24).padding(.vertical, 12).overlay(alignment: .bottom) { Rectangle().fill(.primary.opacity(0.06)).frame(height: 1).padding(.leading, 70) }
     }
 }
 
@@ -212,9 +217,7 @@ struct UpdateView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack { Image(systemName: "arrow.down.app.fill").foregroundStyle(Color(red: 0.95, green: 0.19, blue: 0.22)).font(.system(size: 25)); VStack(alignment: .leading) { Text("Actualizaciones").font(.system(size: 19, weight: .bold)); Text("Versión instalada: \(version)").font(.system(size: 11)).foregroundStyle(.secondary) }; Spacer() }
-            Text("Repositorio de GitHub").font(.system(size: 11, weight: .semibold))
-            TextField("usuario/repositorio", text: $githubRepo).textFieldStyle(.roundedBorder)
-            Toggle("Buscar actualizaciones automáticamente", isOn: $autoUpdate).font(.system(size: 12))
+            Toggle("Buscar actualizaciones automáticamente", isOn: $autoUpdate).font(.system(size: 14))
             Text(status).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack { Button("Buscar actualizaciones") { check() }.buttonStyle(.borderedProminent).tint(Color(red: 0.78, green: 0.12, blue: 0.16)).disabled(checking || githubRepo.split(separator: "/").count != 2); if let releaseURL { Button("Abrir descarga") { NSWorkspace.shared.open(releaseURL) }.buttonStyle(.bordered) }; Spacer() }
             Spacer(minLength: 0)
