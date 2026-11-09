@@ -10,14 +10,14 @@ struct MenuInicioApp: App {
                 .frame(minWidth: 900, minHeight: 620)
         }
         .windowStyle(.hiddenTitleBar)
-        Settings { SettingsView() }
-    }
-    var commands: some Commands {
-        CommandGroup(replacing: .appSettings) {
-            Button("Ajustes") {
-                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Ajustes") {
+                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                }
             }
         }
+        Settings { SettingsView() }
     }
 }
 

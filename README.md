@@ -1,26 +1,28 @@
 # Rojo Inicio
 
-Aplicación nativa para macOS que inspecciona LaunchAgents y LaunchDaemons, muestra su etiqueta y permite habilitar o deshabilitar agentes del usuario con `launchctl`. La app no elimina archivos de configuración.
+Rojo Inicio es una aplicación para macOS que muestra servicios configurados para ejecutarse al iniciar el equipo o al iniciar sesión. Presenta la aplicación asociada, desarrollador, ruta y estado. Permite activar o desactivar servicios compatibles, abrirlos en Finder y deshacer el último cambio.
 
-## Compilar y empaquetar
+## Descargar e instalar
+
+1. Abre la sección [Releases](https://github.com/hernycai/menuinicio/releases/latest) y descarga `Rojo-Inicio-1.0.0.dmg`.
+2. Abre el archivo DMG.
+3. Arrastra **Rojo Inicio.app** a la carpeta **Aplicaciones**.
+4. Expulsa el disco virtual e inicia Rojo Inicio desde Aplicaciones.
+
+La versión actual no está firmada ni notarizada. macOS puede mostrar un aviso al abrirla. Para distribución sin ese aviso, el desarrollador debe firmar y notarizar la aplicación con Apple.
+
+## Qué puede gestionar
+
+La app examina `~/Library/LaunchAgents`, `/Library/LaunchAgents` y `/Library/LaunchDaemons`. Los LaunchAgents se pueden activar o desactivar desde la lista. Los LaunchDaemons del sistema requieren autorización de administrador. Los elementos “Abrir al iniciar” y “Actividad en segundo plano” que macOS administra directamente se consultan en **Ajustes del Sistema → General → Ítems de inicio**; el botón de la app abre ese panel.
+
+Desactivar un servicio puede afectar sincronización, avisos o actualizaciones de su aplicación. El botón **Deshacer** revierte el último cambio realizado desde Rojo Inicio.
+
+## Compilar desde el código
+
+Requiere macOS y Xcode Command Line Tools. Desde la carpeta clonada:
 
 ```sh
 ./scripts/build.sh
 ```
 
-Genera `build/Rojo Inicio.app`, un icono macOS y `dist/Rojo-Inicio-1.0.0.dmg`. El DMG puede instalarse arrastrando la app a Aplicaciones. Para instalar localmente en `/Applications`, ejecuta `./scripts/install.sh`.
-
-## Cobertura y permisos
-
-- El inventario lee `~/Library/LaunchAgents`, `/Library/LaunchAgents` y `/Library/LaunchDaemons`.
-- La app modifica el estado de los agentes del usuario con `launchctl enable/disable`; el cambio aplica en el siguiente inicio de sesión.
-- Los agentes y daemons globales se muestran como protegidos. La app no cambia archivos del sistema ni solicita privilegios de administrador.
-- Los elementos de Inicio de sesión administrados por macOS se configuran en Ajustes del Sistema > General > Ítems de inicio. macOS no ofrece a una app común un inventario completo de esos elementos de otras apps.
-
-## Actualizaciones
-
-En Actualizaciones, la app consulta `hernycai/menuinicio` por defecto; se puede indicar otro `usuario/repositorio`. La app abre la página oficial de descargas. La descarga e instalación automática requiere firma Developer ID, notarización y Sparkle con claves privadas. La preferencia de comprobación automática queda guardada; el chequeo automático aún no está activo en esta compilación.
-
-## Distribución
-
-El DMG generado sirve para compartir. Para distribución pública, firma y notariza la app antes de publicar; configura los secretos `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_TEAM_ID` y `APPLE_APP_SPECIFIC_PASSWORD` en GitHub Actions. La instalación de la app en `/Applications` es local y no se incluye en el DMG.
+El DMG aparece en `dist/Rojo-Inicio-1.0.0.dmg`. También se puede instalar localmente con `./scripts/install.sh`.
